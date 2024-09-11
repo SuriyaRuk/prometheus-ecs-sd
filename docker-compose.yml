@@ -1,23 +1,48 @@
-version: '2.4'
 services:
-
-  ecs-sd:
-    container_name: ecs-sd
-    image: sepa/ecs-sd
+  external-ecs-sd:
+    container_name: external-ecs-sd
+    image: xxx
     command:
-      - -l=debug
-      - -i=10
-    build:
-      context: .
-      dockerfile: Dockerfile
+      - -l=warn
+      - -i=20
+      - -c=xxxx
+      - -s=xxxx
+      - -f=/tmp/external_ecs_file_sd.yml
+    #build:
+    #  context: .
+     # dockerfile: Dockerfile
     environment:
       # aws-vault exec profile -n -- docker-compose up -d
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+      AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: xxx
+      AWS_SECRET_ACCESS_KEY: xxx
+      # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
     volumes:
-      - ./prometheus-ecs-sd.py:/usr/src/app/prometheus-ecs-sd.py
-      - /tmp/:/tmp/
+      #- ./prometheus-ecs-sd.py:/usr/src/app/prometheus-ecs-sd.py
+      - ./tmp/:/tmp/
     ports:
-    - 8080:8080
+      - 8888:8080
+
+  internal-ecs-sd:
+    container_name: internal-ecs-sd
+    image: xxxx
+    command:
+      - -l=warn
+      - -i=20
+      - -c=xxxx
+      - -s=xxxx
+      - -f=/tmp/interternal_ecs_file_sd.yml
+    #build:
+    #  context: .
+     # dockerfile: Dockerfile
+    environment:
+      # aws-vault exec profile -n -- docker-compose up -d
+      AWS_DEFAULT_REGION: xxx
+      AWS_ACCESS_KEY_ID: xxxx
+      AWS_SECRET_ACCESS_KEY: xxxx
+      # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+    volumes:
+      #- ./prometheus-ecs-sd.py:/usr/src/app/prometheus-ecs-sd.py
+      - ./tmp/:/tmp/
+    ports:
+      - 8889:8080

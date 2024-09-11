@@ -7,6 +7,7 @@ from aiohttp import web
 import asyncio
 import yaml
 import sys
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -19,15 +20,17 @@ def parse_args():
     parser.add_argument('-i', '--interval', type=int, default=60, help='Interval to discover ECS tasks, seconds (default: 60)')
     parser.add_argument('-l', '--log', choices=['debug', 'info', 'warn'], default='info', help='Logging level (default: info)')
     parser.add_argument('-p', '--port', type=int, default=8080, help='Port to serve /metrics (default: 8080)')
+    parser.add_argument('-s', '--service', type=str, default='', help='Return metrics only for this Service  name (default: all)')
     args = parser.parse_args()
     logger.setLevel(getattr(logging, args.log.upper()))
     return args
 
 
 class Discoverer:
-    def __init__(self, file, cluster):
+    def __init__(self, file, cluster,service):
         self.file = file
         self.cluster = cluster
+        self.service = service
         self.tasks = {}      # ecs tasks cache
         self.hosts = {}      # ec2 container instances cache
         try:
@@ -61,8 +64,9 @@ class Discoverer:
         for cluster in self.ecs.list_clusters().get('clusterArns', []):
             if self.cluster and cluster.split('/')[-1] != self.cluster:
                 continue
-            for page in self.ecs.get_paginator('list_tasks').paginate(cluster=cluster, launchType='EC2'):
+            for page in self.ecs.get_paginator('list_tasks').paginate(cluster=cluster,serviceName=self.service):
                 for arn in page.get('taskArns', []):
+                    #print(arn)
                     targets += self.check_task(cluster=cluster, arn=arn)
                     tasks += 1
         logger.info(f"Discovered {len(targets)} targets from {tasks} tasks")
@@ -73,9 +77,11 @@ class Discoverer:
         if arn not in self.tasks:
             task = self.ecs.describe_tasks(cluster=cluster, tasks=[arn])['tasks'][0]
             td = self.ecs.describe_task_definition(taskDefinition=task['taskDefinitionArn'])['taskDefinition']
-            if 'containerInstanceArn' not in task:  # not yet mapped, skip caching
+            #print(json.dumps(task['containers'], indent=4, default=str))
+            if 'containers' not in task:  # not yet mapped, skip caching
                 return []
-            ip = self.get_host_ip(cluster, task['containerInstanceArn'])
+            #ip = self.get_host_ip(cluster, task['containers'][0])
+            ip = task['containers'][0]['networkInterfaces'][0]['privateIpv4Address']
             sd = []
             for container in td['containerDefinitions']:
                 scrapes = container.get('dockerLabels', {}).get('PROMETHEUS_SCRAPES')
@@ -89,7 +95,8 @@ class Discoverer:
                     labels['__container_image'] = tc.get('image', '')
                     labels['__task_group'] = task.get('group', '')
                     labels['__container_runtime_id'] = tc.get('runtimeId', '')
-                    labels['instance_id'] = self.hosts[task['containerInstanceArn']]['id']
+                    #labels['instance_id'] = self.hosts[task['containerInstanceArn']]['id']
+                    #ip = container['networkInterfaces'][0]['privateIpv4Address']
                     for port in scrapes.split(','):
                         tmp = labels.copy()
                         if '/' in port:
@@ -108,10 +115,8 @@ class Discoverer:
 
     def get_host_ip(self, cluster, arn):
         if arn not in self.hosts:
-            id = self.ecs.describe_container_instances(cluster=cluster, containerInstances=[arn])['containerInstances'][0]['ec2InstanceId']
             self.hosts[arn] = {
-                'id': id,
-                'ip': self.ec2.describe_instances(InstanceIds=[id])['Reservations'][0]['Instances'][0]['PrivateIpAddress']
+                'ip': arn[0]['networkInterfaces'][0]['privateIpv4Address']
             }
             logger.debug(f'Got host {arn} IP: {self.hosts[arn]["ip"]}')
         return self.hosts[arn]["ip"]
@@ -169,7 +174,7 @@ class Metrics:
 
 
 async def start_background_tasks(app):
-    app['discovery'] = asyncio.create_task(Discoverer(app['args'].file, app['args'].cluster).loop(app['args'].interval))
+    app['discovery'] = asyncio.create_task(Discoverer(app['args'].file, app['args'].cluster,app['args'].service).loop(app['args'].interval))
 
 
 async def cleanup_background_tasks(app):
